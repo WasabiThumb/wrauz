@@ -1,4 +1,8 @@
 # wrauz
+
+![NPM Version](https://img.shields.io/npm/v/wrauz)
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+
 wrauz (Web Random Access Unzip) is a low-level modern JS library for
 unzipping some or all of a ZIP file's contents **without excessive memory use**.
 wrauz uses the WHATWG [DecompressionStream](https://developer.mozilla.org/en-US/docs/Web/API/DecompressionStream)
