@@ -1,11 +1,12 @@
 {
   "name": "wrauz",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "wasabithumbs",
   "type": "module",
   "main": "dist/index.js",
   "types": "types/index.d.ts",
   "license": "Apache-2.0",
+  "keywords": [ "zip", "unzip", "browser", "stream", "random" ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WasabiThumb/wrauz.git"
