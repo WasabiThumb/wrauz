@@ -14,7 +14,12 @@ test("empty", async () => {
 test("minecraft", async () => {
     // Open the Minecraft 26.3 client JAR as a ZIP
     const url = `https://piston-data.mojang.com/v1/objects/e877b6a07acd633fb3bb475002175cec036e7b87/client.jar`;
-    const zf = await wrauz(url);
+    const zf = await wrauz(url, {
+        maxRetries: 10,
+        filter(n: string) {
+            return n.startsWith("assets/minecraft/lang/");
+        }
+    });
 
     // Get the en_us.json file
     const en = zf.entry("assets/minecraft/lang/en_us.json");

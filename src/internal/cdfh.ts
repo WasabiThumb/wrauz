@@ -1,10 +1,6 @@
 import type {UrlHandle} from "./handle";
 import {BytesReader, type Reader, StreamReader} from "./reader";
-
-//
-
-/** Maximum retries per failed entry read */
-const MAX_RETRIES = 3;
+import type {ParsedConstructorOptions} from "./options";
 
 //
 
@@ -196,11 +192,12 @@ async function locateCentralDirectoryWithRegion(
 }
 
 async function readCentralDirectoryWithoutRange(
-    url: string
+    url: string,
+    opts: ParsedConstructorOptions
 ): Promise<CentralDirectory> {
     // Helper to make a new reader
-    const newReader = (async () => {
-        const r = await fetch(url);
+    const newReader = (async (cache?: boolean) => {
+        const r = await fetch(url, opts.makeRequestInit(cache));
         if (r.status < 200 || r.status > 299) throw new Error(`Non-2XX status code ${r.status} (${r.statusText})`);
         const { body } = r;
         if (!body) throw new Error(`Response has no body`);
@@ -268,17 +265,20 @@ async function readCentralDirectoryWithoutRange(
 
     // Read the records
     const records: CentralDirectoryRecord[] = new Array(centralDirectoryRecords);
-    const recordReader = await newReader();
+    const recordReader = await newReader(true);
     try {
         await recordReader.skipExact(centralDirectoryOffset);
+        let head: number = 0;
         for (let i = 0; i < centralDirectoryRecords; i++) {
             const next = await readRecord(recordReader, zip64);
-            if (next === null) {
-                records.length = i;
-                break;
+            if (next === null) break;
+            if (!opts.entryPassesFilter(next.name)) {
+                if (head !== 0) break;
+                continue;
             }
-            records[i] = next;
+            records[head++] = next;
         }
+        records.length = head;
     } finally {
         await recordReader.close();
     }
@@ -294,14 +294,15 @@ async function readCentralDirectoryWithoutRange(
 async function readCentralDirectoryWithRange(
     url: string,
     tail: Uint8Array,
-    tailOffset: bigint
+    tailOffset: bigint,
+    opts: ParsedConstructorOptions
 ): Promise<CentralDirectory> {
     // Locate the central directory
     const { centralDirectoryRecords, centralDirectoryOffset, zip64 } = await locateCentralDirectoryWithRegion(
         tail,
         tailOffset,
         async (start, end) => {
-            const r = await fetch(url, { cache: "force-cache", headers: { "Range": `bytes=${start}-${end}` } });
+            const r = await fetch(url, opts.makeRequestInit(true, { start, end }));
             if (r.status !== 206) throw new Error(`Non-206 status code ${r.status} while reading ZIP64 data (${r.statusText})`);
             return r.arrayBuffer();
         }
@@ -316,7 +317,7 @@ async function readCentralDirectoryWithRange(
         reader = new BytesReader(tail.subarray(start, tail.length));
     } else {
         // Make a request
-        const r = await fetch(url, { cache: "force-cache", headers: { "Range": `bytes=${centralDirectoryOffset}-` } });
+        const r = await fetch(url, opts.makeRequestInit(true, { start: centralDirectoryOffset }));
         if (r.status !== 206) throw new Error(`Non-206 status code ${r.status} while reading ZIP data (${r.statusText})`);
         const { body } = r;
         if (!body) throw new Error(`Response for ZIP data has no body`);
@@ -327,24 +328,26 @@ async function readCentralDirectoryWithRange(
     const records: CentralDirectoryRecord[] = new Array(centralDirectoryRecords);
     let retryAt = 0;
     let retryAtOffset: bigint = centralDirectoryOffset;
-    let head = 0;
+    let readHead = 0;
+    let writeHead: number = 0;
     try {
         while (true) {
-            let retries: number = 0;
+            let retries: bigint = 0n;
             try {
                 let queuedRetry: boolean = false;
                 let queuedRetryData: [ number, bigint ] = new Array(2) as [ number, bigint ] ;
-                while (head < centralDirectoryRecords) {
-                    const index = head++;
+                while (readHead < centralDirectoryRecords) {
+                    const index = readHead++;
                     const next = await readRecord(reader, zip64);
-                    if (!next) {
-                        records.length = index;
+                    if (!next) break;
+                    if (opts.entryPassesFilter(next.name)) {
+                        records[writeHead++] = next;
+                    } else if (writeHead !== 0) {
                         break;
                     }
-                    records[index] = next;
                     if (queuedRetry) {
                         [ retryAt, retryAtOffset ] = queuedRetryData;
-                        retries = 0;
+                        retries = 0n;
                     }
                     queuedRetryData[0] = index;
                     queuedRetryData[1] = readerOffset + reader.position;
@@ -352,18 +355,19 @@ async function readCentralDirectoryWithRange(
                 }
                 break;
             } catch (e) {
-                if (retries >= MAX_RETRIES) throw new Error(`Failed to read ZIP records (retried x${retries})`, { cause: e });
-                retries++;
+                if (retries >= opts.maxRetries) throw new Error(`Failed to read ZIP records (retried x${retries})`, { cause: e });
+                retries += 1n;
                 // make a new reader
-                const r = await fetch(url, { cache: "force-cache", headers: { "Range": `bytes=${retryAtOffset}-` } });
+                const r = await fetch(url, opts.makeRequestInit(true, { start: retryAtOffset }));
                 if (r.status !== 206) throw new Error(`Non-206 status code ${r.status} while resuming ZIP data (${r.statusText})`);
                 const { body } = r;
                 if (!body) throw new Error(`Response for resumed ZIP data has no body`);
-                head = retryAt;
+                readHead = retryAt;
                 reader = new StreamReader(body);
                 readerOffset = retryAtOffset;
             }
         }
+        records.length = writeHead;
     } finally {
         await reader.close();
     }
@@ -376,20 +380,20 @@ async function readCentralDirectoryWithRange(
     } as CentralDirectory;
 }
 
-export function readCentralDirectory(handle: UrlHandle): Promise<CentralDirectory> {
+export function readCentralDirectory(handle: UrlHandle, opts: ParsedConstructorOptions): Promise<CentralDirectory> {
     return handle(async (url) => {
-        // Not sure yet if the URL supports range requests, so need to be careful
-        const r = await fetch(url, { headers: { "Range": "bytes=-65579" } });
+        if (opts.range === "never") return readCentralDirectoryWithoutRange(url, opts);
+        const r = await fetch(url, opts.makeRequestInit(false, { suffix: 65579 }));
         const { status } = r;
-        if (status === 416) return readCentralDirectoryWithoutRange(url);
+        if (status === 416) return readCentralDirectoryWithoutRange(url, opts);
         if (status < 200 || status > 299) throw new Error(`Non-2XX status code ${status} (${r.statusText})`);
-        if (status !== 206) return readCentralDirectoryWithoutRange(url);
+        if (status !== 206) return readCentralDirectoryWithoutRange(url, opts);
         const range = r.headers.get("Content-Range");
-        if (!range) return readCentralDirectoryWithoutRange(url);
+        if (!range) return readCentralDirectoryWithoutRange(url, opts);
         const match = /^bytes\x20(\d+)-/i.exec(range);
-        if (!match) return readCentralDirectoryWithoutRange(url);
+        if (!match) return readCentralDirectoryWithoutRange(url, opts);
         const tail = await r.bytes();
         if (tail.length < 22) throw new Error(`Truncated ZIP file (read ${tail.length} bytes)`);
-        return readCentralDirectoryWithRange(url, tail, BigInt(match[1]!));
+        return readCentralDirectoryWithRange(url, tail, BigInt(match[1]!), opts);
     });
 }

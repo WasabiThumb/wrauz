@@ -1,9 +1,10 @@
-import {type ZipEntry, type ZipFile, type ZipFileConstructor, type ZipFileSource} from "./struct";
+import type {ZipEntry, ZipFile, ZipFileConstructor, ZipFileConstructorOptions, ZipFileSource} from "./struct";
 import {type CentralDirectory, type CentralDirectoryRecord, readCentralDirectory} from "./internal/cdfh";
 import {type UrlHandle, urlHandle} from "./internal/handle";
-import readerToWebStream, {LimitedReader, type Reader, StreamReader} from "./internal/reader";
+import {type Reader, LimitedReader, StreamReader, readerToWebStream} from "./internal/reader";
+import {ParsedConstructorOptions} from "./internal/options";
 
-//
+//r
 
 const stringCompare = ((a: string, b: string): number => {
     const al = a.length;
@@ -94,8 +95,9 @@ class ZipFileImpl implements ZipFile {
     readonly originalEntries: readonly ZipEntryImpl[];
     private readonly _handle: UrlHandle;
     private readonly _supportsRange: boolean;
+    private readonly _opts: ParsedConstructorOptions;
 
-    constructor(handle: UrlHandle, cd: CentralDirectory) {
+    constructor(handle: UrlHandle, cd: CentralDirectory, opts: ParsedConstructorOptions) {
         const { supportsRange } = cd;
         const [ entries, originalEntries ] = ((records) => {
             const entries: ZipEntryImpl[] = new Array(records.length);
@@ -124,6 +126,7 @@ class ZipFileImpl implements ZipFile {
         this.originalEntries = originalEntries;
         this._handle = handle;
         this._supportsRange = supportsRange;
+        this._opts = opts;
     }
 
     //
@@ -199,19 +202,13 @@ class ZipFileImpl implements ZipFile {
         return this._handle(async (url): Promise<R> => {
             let r: Response;
             if (range) {
-                r = await fetch(
-                    url,
-                    {
-                        cache: "force-cache",
-                        headers: { "Range": `bytes=${offset}-` }
-                    }
-                );
+                r = await fetch(url, { cache: "force-cache", headers: this._opts.makeHeaders({ start: offset }) });
                 if (r.status !== 206) {
                     throw new Error("Non-206 status code for range request while " +
                         `reading ZIP entry @ ${offset} (got HTTP ${r.status}: ${r.statusText})`);
                 }
             } else {
-                r = await fetch(url, { cache: "force-cache" });
+                r = await fetch(url, { cache: "force-cache", headers: this._opts.makeHeaders() });
                 if (r.status < 200 || r.status > 299) {
                     throw new Error(`Non-2XX status code while reading ZIP entry (got HTTP ${r.status}: ${r.statusText})`);
                 }
@@ -343,10 +340,19 @@ class ZipFileImpl implements ZipFile {
  * Entry point for wrauz.
  * Reads the specified source as a ZIP file.
  */
-const wrauz: ZipFileConstructor = async function wrauz(source: ZipFileSource): Promise<ZipFile> {
+const wrauz: ZipFileConstructor = async function wrauz(
+    source: ZipFileSource,
+    options?: ZipFileConstructorOptions
+): Promise<ZipFile> {
+    // Parse arguments
+    const o = new ParsedConstructorOptions(options);
     const handle = urlHandle(source);
-    const cd = await readCentralDirectory(handle);
-    return new ZipFileImpl(handle, cd);
+
+    // Read central directory
+    const cd = await readCentralDirectory(handle, o);
+
+    // Collect to ZIP file
+    return new ZipFileImpl(handle, cd, o);
 }
 
 export type * from "./struct";

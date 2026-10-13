@@ -77,5 +77,57 @@ export interface ZipFile extends Iterable<ZipEntry> {
 /** An object which may be used to construct a ZipFile */
 export type ZipFileSource = ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob | URL | string;
 
+/** Options for the zip file creation function */
+export type ZipFileConstructorOptions = {
+    /**
+     * Determines which entries should be
+     * extracted by their name. Parsing
+     * stops at the first entry that does
+     * not match, so it is not guaranteed
+     * that the resultant ZIP file will
+     * contain *all* matching entries
+     * depending on the order of entries
+     * within the ZIP file.
+     */
+    filter?: (name: string) => boolean,
+
+    /**
+     * Determines when wrauz will attempt
+     * to make range requests. The default
+     * behavior (`auto`) is to always make
+     * a range request and continue if the
+     * server responds with a well-formed
+     * `Content-Range` header, otherwise
+     * reopen the connection and never make
+     * another range request. When set to
+     * `never`, the initial
+     * request is not made and wrauz
+     * instead proceeds directly to the
+     * rangeless code path.
+     */
+    range?: "auto" | "never",
+
+    /**
+     * Maximum amount of times to retry
+     * a range request when corruption is
+     * detected. Retries are disallowed for
+     * non-range requests.
+     */
+    maxRetries?: number | bigint,
+
+    /**
+     * Abort signal to use. Aborting will cause
+     * wrauz to exit early with an error.
+     */
+    signal?: AbortSignal,
+
+    /**
+     * Additional headers to use for all requests.
+     * This includes requests made by the `ZipFile`
+     * after construction.
+     */
+    headers?: HeadersInit
+};
+
 /** A function which takes a source and parses it as a zip file */
-export type ZipFileConstructor = (source: ZipFileSource) => Promise<ZipFile>;
+export type ZipFileConstructor = (source: ZipFileSource, options?: ZipFileConstructorOptions) => Promise<ZipFile>;

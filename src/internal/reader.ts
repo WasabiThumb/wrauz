@@ -337,7 +337,7 @@ export class LimitedReader extends AbstractReader {
 
 //
 
-function readerToWebStream(reader: Reader): ReadableStream<Uint8Array> {
+export function readerToWebStream(reader: Reader): ReadableStream<Uint8Array> {
     const buffer = new Uint8Array(8192);
     return new ReadableStream<Uint8Array>({
         async pull(controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
@@ -357,5 +357,3 @@ function readerToWebStream(reader: Reader): ReadableStream<Uint8Array> {
         }
     });
 }
-
-export default readerToWebStream
