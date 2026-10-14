@@ -13,6 +13,7 @@ type OptionValue<K extends keyof ZipFileConstructorOptions> =
 type Store = {
     filter: ((name: string) => any) | null,
     range: OptionValue<"range">,
+    duplicates: OptionValue<"duplicates">,
     signal: OptionValue<"signal"> | null,
     headers: Headers | null,
     maxRetries: bigint,
@@ -21,6 +22,7 @@ type Store = {
 const DEFAULT_STORE: Store = {
     filter: null,
     range: "auto",
+    duplicates: "merge",
     signal: null,
     headers: null,
     maxRetries: 3n,
@@ -34,7 +36,7 @@ export class ParsedConstructorOptions {
          let store: Store = {...DEFAULT_STORE};
          if (!src) return store;
          if (typeof src !== "object") throw new Error(`options must be an object`);
-         const { signal, filter, range, headers, maxRetries } = src;
+         const { signal, filter, range, duplicates, headers, maxRetries } = src;
          if (signal) {
              if (typeof signal !== "object" || !(signal instanceof AbortSignal)) {
                  throw new Error(`\"signal\" must be an AbortSignal`);
@@ -56,6 +58,16 @@ export class ParsedConstructorOptions {
                  throw new Error(`illegal value for \"range\": ${range}`);
              }
              store.range = v as OptionValue<"range">;
+         }
+         if (duplicates) {
+             if (typeof duplicates !== "string") {
+                 throw new Error(`\"duplicates\" must be a string`);
+             }
+             const v = duplicates.toLowerCase();
+             if (["keep", "merge", "ignore", "fail"].indexOf(v) === -1) {
+                 throw new Error(`illegal value for \"duplicates\": ${duplicates}`);
+             }
+             store.duplicates = v as OptionValue<"duplicates">;
          }
          if (headers) {
              store.headers = new Headers(headers);
@@ -92,6 +104,10 @@ export class ParsedConstructorOptions {
         return this._store.range;
     }
 
+    get duplicates(): OptionValue<"duplicates"> {
+        return this._store.duplicates;
+    }
+
     get maxRetries(): bigint {
         return this._store.maxRetries;
     }
@@ -102,6 +118,7 @@ export class ParsedConstructorOptions {
         return !!filter(name);
     }
 
+    /** This uses the configured signal so it's only appropriate for use in directory reading, not later entry reading! */
     makeRequestInit(cache?: boolean, range?: Range): RequestInit {
         const { signal } = this._store;
         let ret: RequestInit = { headers: this.makeHeaders(range) };

@@ -56,10 +56,16 @@ const search = (<R>(
 
 class ZipEntryImpl implements ZipEntry {
 
+    private _next: ZipEntryImpl | null;
+    private _tail: ZipEntryImpl | null;
+
     constructor(
         readonly parent: ZipFileImpl,
         readonly record: CentralDirectoryRecord
-    ) { }
+    ) {
+        this._next = null;
+        this._tail = null;
+    }
 
     //
 
@@ -77,6 +83,34 @@ class ZipEntryImpl implements ZipEntry {
 
     get lastModified(): number {
         return ((this.record.modDate << 16) | this.record.modTime) >>> 0;
+    }
+
+    matches(other: ZipEntryImpl): boolean {
+        const ar = this.record;
+        const br = other.record;
+        if (Object.is(ar, br)) return true;
+        return ar.name === br.name &&
+            ar.compressedSize === br.compressedSize &&
+            ar.offset === br.offset &&
+            ar.method === br.method;
+    }
+
+    link(entry: ZipEntryImpl): void {
+        const tail = this._tail;
+        if (!tail) {
+            this._tail = this._next = entry;
+            return;
+        }
+        tail._next = entry;
+        this._tail = entry;
+    }
+
+    *linked(): Generator<ZipEntryImpl> {
+        let next: ZipEntryImpl | null = this._next;
+        while (next) {
+            yield next;
+            next = next._next;
+        }
     }
 
     toString() {
@@ -108,8 +142,19 @@ class ZipFileImpl implements ZipFile {
                 search(
                     entries, i,
                     entry.record.name,
-                    (_) => {
-                        throw new Error("Malformed ZIP (duplicate entry)")
+                    (k) => {
+                        // noinspection FallThroughInSwitchStatementJS
+                        switch (opts.duplicates) {
+                            case "keep":
+                                entries[k]!.link(entry);
+                                break;
+                            case "ignore":
+                                break;
+                            case "merge":
+                                if (entry.matches(entries[k]!)) break;
+                            default:
+                                throw new Error(`ZIP has duplicate entry: ${entries[k]!.name}`);
+                        }
                     },
                     (k) => {
                         if (k !== i) entries.copyWithin(k + 1, k, i);
@@ -170,7 +215,9 @@ class ZipFileImpl implements ZipFile {
     }
 
     [Symbol.iterator](): Iterator<ZipEntry> {
-        return this.entries[Symbol.iterator]();
+        return "keep" === this._opts.duplicates ?
+            this._entriesAndLinked() :
+            this.entries[Symbol.iterator]();
     }
 
     [Symbol.toStringTag]() {
@@ -313,6 +360,13 @@ class ZipFileImpl implements ZipFile {
         }
     }
 
+    private *_entriesAndLinked(): Generator<ZipEntry> {
+        for (const entry of this.entries) {
+            yield entry;
+            for (const linked of entry.linked()) yield linked;
+        }
+    }
+
     private *_inPrefix(prefix: string, full?: boolean): Generator<ZipEntry> {
         let head: number = search(
             this.entries,
@@ -321,6 +375,7 @@ class ZipFileImpl implements ZipFile {
             (i) => i + 1,
             (i) => i
         );
+        const includeLinked = "keep" === this._opts.duplicates;
         while (head < this.entries.length) {
             const entry = this.entries[head++]!;
             if (!entry.name.startsWith(prefix)) break;
@@ -329,6 +384,8 @@ class ZipFileImpl implements ZipFile {
                 if (slash !== -1 && slash !== entry.name.length - 1) continue;
             }
             yield entry;
+            if (!includeLinked) continue;
+            for (const linked of entry.linked()) yield linked;
         }
     }
 

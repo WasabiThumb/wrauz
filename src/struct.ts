@@ -15,6 +15,10 @@ export namespace ZipFile {
     export type Encoded<E extends EncodingArgument = EncodingArgument> = E["length"] extends 0 ? ReadableStream<Uint8Array> :
         (E extends [ infer X ] ? (X extends Encoding ? EncodingMap[X] : EncodingMap[Encoding]) : EncodingMap[Encoding]);
 
+    export type RangeStrategy = "auto" | "never";
+
+    export type DuplicateStrategy = "keep" | "merge" | "ignore" | "fail";
+
 }
 
 //
@@ -105,7 +109,25 @@ export type ZipFileConstructorOptions = {
      * instead proceeds directly to the
      * rangeless code path.
      */
-    range?: "auto" | "never",
+    range?: ZipFile.RangeStrategy,
+
+    /**
+     * The action to take when a duplicate
+     * ZIP entry is found. The default behavior
+     * (`merge`) is to throw an error only when
+     * the duplicate entry is distinct from the
+     * existing entry. When set to
+     * `keep`, duplicate entries are kept
+     * and reported by the `ZipFile`
+     * iterator(s), though still reporting
+     * the "earliest" entry when accessing
+     * an entry by name. When set
+     * to `ignore`, only the "earliest" entry
+     * with a given name is kept. When set to
+     * `fail`, duplicate entries are disallowed
+     * and will always throw an error.
+     */
+    duplicates?: ZipFile.DuplicateStrategy,
 
     /**
      * Maximum amount of times to retry
