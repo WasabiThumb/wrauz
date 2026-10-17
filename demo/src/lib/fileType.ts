@@ -104,6 +104,7 @@ const defineVideoType = (<N extends string, E extends string>(
             const uri = URL.createObjectURL(src);
             onFinalized(element, () => URL.revokeObjectURL(uri));
             element.src = uri;
+            element.controls = true;
             return element;
         }
     });
