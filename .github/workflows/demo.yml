@@ -16,6 +16,8 @@ jobs:
       GITHUB_PAGES: true
     steps:
       - uses: actions/checkout@v7
+        with:
+          lfs: true
       - uses: oven-sh/setup-bun@v2
         name: Setup Bun
       - run: bun install --frozen-lockfile
