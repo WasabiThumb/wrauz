@@ -1,0 +1,11 @@
+telemetry = false
+env = false
+
+[fmt]
+printWidth = 120 # JetBrains convention
+tabWidth = 4 # JetBrains convention
+endOfLine = "lf"
+semi = true
+ignorePatterns = [ "dist/**", "types/**", "./*" ]
+sortImports = true
+jsdoc = { descriptionWithDot = true, commentLineStrategy = "multiline" }
