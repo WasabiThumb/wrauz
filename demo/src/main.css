@@ -1,0 +1,31 @@
+@import "tailwindcss";
+@import "./font.css";
+
+/* @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *)); */
+
+:root {
+    font-family: 'Cascadia Mono', 'JetBrains Mono', monospace;
+    font-optical-sizing: auto;
+    font-style: normal;
+    font-weight: 400;
+    line-height: 1.5;
+
+    color-scheme: light dark;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/*noinspection CssOverwrittenProperties*/
+html, body {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
