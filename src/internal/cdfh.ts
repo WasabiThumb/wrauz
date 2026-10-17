@@ -383,17 +383,38 @@ async function readCentralDirectoryWithRange(
 export function readCentralDirectory(handle: UrlHandle, opts: ParsedConstructorOptions): Promise<CentralDirectory> {
     return handle(async (url) => {
         if (opts.range === "never") return readCentralDirectoryWithoutRange(url, opts);
-        const r = await fetch(url, opts.makeRequestInit(false, { suffix: 65579 }));
-        const { status } = r;
-        if (status === 416) return readCentralDirectoryWithoutRange(url, opts);
-        if (status < 200 || status > 299) throw new Error(`Non-2XX status code ${status} (${r.statusText})`);
-        if (status !== 206) return readCentralDirectoryWithoutRange(url, opts);
-        const range = r.headers.get("Content-Range");
-        if (!range) return readCentralDirectoryWithoutRange(url, opts);
-        const match = /^bytes\x20(\d+)-/i.exec(range);
-        if (!match) return readCentralDirectoryWithoutRange(url, opts);
-        const tail = await r.bytes();
-        if (tail.length < 22) throw new Error(`Truncated ZIP file (read ${tail.length} bytes)`);
-        return readCentralDirectoryWithRange(url, tail, BigInt(match[1]!), opts);
+        let r: Response = await fetch(url, opts.makeRequestInit(false, { suffix: 65579 }));
+        let retriedWithKnownLength: boolean = false;
+        while (true) {
+            const { status } = r;
+            if (status === 416) return readCentralDirectoryWithoutRange(url, opts);
+            if (status < 200 || status > 299) throw new Error(`Non-2XX status code ${status} (${r.statusText})`);
+            if (status !== 206) return readCentralDirectoryWithoutRange(url, opts);
+            const range = r.headers.get("Content-Range");
+            if (!range) return readCentralDirectoryWithoutRange(url, opts);
+            const match = /^bytes\x20(\d+)-(\d+)\/(\*|\d+)/i.exec(range);
+            if (!match) return readCentralDirectoryWithoutRange(url, opts);
+            const rangeStart = BigInt(match[1]!);
+            if (match[3] !== "*") {
+                const totalLength = BigInt(match[3]!);
+                const expectedStart = totalLength - 65579n;
+                if (rangeStart < expectedStart) {
+                    if (retriedWithKnownLength) {
+                        // the server failed to satisfy the range properly twice
+                        return readCentralDirectoryWithoutRange(url, opts);
+                    }
+                    // the server misinterpreted the suffix range, retry with known length
+                    retriedWithKnownLength = true;
+                    r = await fetch(url, opts.makeRequestInit(false, {
+                        start: expectedStart < 0n ? 0n : expectedStart,
+                        end: totalLength
+                    }));
+                    continue;
+                }
+            }
+            const tail = await r.bytes();
+            if (tail.length < 22) throw new Error(`Truncated ZIP file (read ${tail.length} bytes)`);
+            return readCentralDirectoryWithRange(url, tail, rangeStart, opts);
+        }
     });
 }
