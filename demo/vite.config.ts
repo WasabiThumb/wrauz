@@ -5,6 +5,7 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 //
 
 export default defineConfig({
+    base: !process.env["GITHUB_PAGES"] ? "/" : "/wrauz/",
     build: {
         target: "esnext",
     },

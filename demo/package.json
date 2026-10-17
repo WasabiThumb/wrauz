@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "bunx --bun vite",
-    "build": "bunx --bun vite build",
-    "build-pages": "bunx --bun vite build --base /wrauz/"
+    "build": "bunx --bun vite build"
   },
   "dependencies": {
     "wrauz": "link:wrauz"
